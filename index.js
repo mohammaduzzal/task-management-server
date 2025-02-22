@@ -1,18 +1,15 @@
 const express = require('express');
 const cors = require('cors');
 const app = express();
+require('dotenv').config()
 const port = process.env.PORT || 5000;
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-const WebSocket = require("ws");
-
 
 // middleware
 app.use(cors());
 app.use(express.json());
 
-const uri = "mongodb+srv://task-management:FEThNwTpXcMQVkxi@cluster0.llz6n.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
-
-
+const uri = `mongodb+srv://${DB_USER}:${DB_PASS}@cluster0.llz6n.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -23,41 +20,15 @@ const client = new MongoClient(uri, {
   }
 });
 
-
-// WebSocket server
-const wss = new WebSocket.Server({ port: 8080 });
-
-// Broadcast updates to all clients
-const broadcast = (data) => {
-  wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(data));
-    }
-  });
-};
-
-// WebSocket event handling
-wss.on("connection", (ws) => {
-  console.log("Client connected");
-
-  ws.on("message", (message) => {
-    console.log("Received message:", message.toString());
-  });
-
-  ws.on("close", () => {
-    console.log("Client disconnected");
-  });
-});
-
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
+    // Connect the client to the server (optional starting in v4.7)
     // await client.connect();
 
-    const userCollection = client.db('task-management').collection('users')
-    const tasksCollection = client.db('task-management').collection('task')
+    const userCollection = client.db('task-management').collection('users');
+    const tasksCollection = client.db('task-management').collection('task');
 
-
+    // User-related API
     app.post('/users', async (req, res) => {
       const { uid, email, displayName } = req.body;
 
@@ -84,8 +55,8 @@ async function run() {
       }
     });
 
-    // task related api
-    //Get all tasks
+    // Task-related API
+    // Get all tasks
     app.get("/tasks", async (req, res) => {
       try {
         const tasks = await tasksCollection.find().sort({ order: 1 }).toArray();
@@ -95,40 +66,38 @@ async function run() {
       }
     });
 
-    //Update a task
+    // Update a task
     app.put("/tasks/:id", async (req, res) => {
       try {
         const { id } = req.params;
         const updatedTask = req.body;
-    
+
         // Remove _id from the update payload
         delete updatedTask._id;
-    
+
         const result = await tasksCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: updatedTask }
         );
-    
+
         res.json({ message: "Task updated", result });
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
     });
 
-    //Delete a task
+    // Delete a task
     app.delete("/tasks/:id", async (req, res) => {
       try {
         const { id } = req.params;
         await tasksCollection.deleteOne({ _id: new ObjectId(id) });
-
-        broadcast({ type: "TASK_DELETED", taskId: id });
         res.json({ message: "Task deleted" });
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
     });
 
-    //Reorder tasks
+    // Reorder tasks
     app.put("/tasks/reorder", async (req, res) => {
       try {
         const { tasks } = req.body;
@@ -139,37 +108,28 @@ async function run() {
           },
         }));
         await tasksCollection.bulkWrite(bulkOps);
-
-        broadcast({ type: "TASKS_REORDERED", tasks });
         res.json({ message: "Tasks reordered successfully" });
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
     });
 
-    //Add a new task
+    // Add a new task
     app.post("/tasks", async (req, res) => {
       try {
         const { title, description, category, order } = req.body;
         const newTask = { title, description, category, order, timestamp: new Date() };
         const result = await tasksCollection.insertOne(newTask);
         const task = { _id: result.insertedId, ...newTask };
-
-        broadcast({ type: "TASK_ADDED", task });
         res.status(201).json(task);
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
     });
 
-
-
-
-
-
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
@@ -177,10 +137,10 @@ async function run() {
 }
 run().catch(console.dir);
 
-
 app.get('/', (req, res) => {
-  res.send('task management server is running')
-})
+  res.send('Task management server is running');
+});
+
 app.listen(port, () => {
-  console.log(`task management server is running on port : ${port}`);
-})
+  console.log(`Task management server is running on port: ${port}`);
+});
