@@ -2,7 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const app = express();
 const port = process.env.PORT || 5000;
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const WebSocket = require("ws");
 
 
 // middleware
@@ -11,6 +12,8 @@ app.use(express.json());
 
 const uri = "mongodb+srv://task-management:FEThNwTpXcMQVkxi@cluster0.llz6n.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 
+
+
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
@@ -18,6 +21,32 @@ const client = new MongoClient(uri, {
     strict: true,
     deprecationErrors: true,
   }
+});
+
+
+// WebSocket server
+const wss = new WebSocket.Server({ port: 8080 });
+
+// Broadcast updates to all clients
+const broadcast = (data) => {
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(data));
+    }
+  });
+};
+
+// WebSocket event handling
+wss.on("connection", (ws) => {
+  console.log("Client connected");
+
+  ws.on("message", (message) => {
+    console.log("Received message:", message.toString());
+  });
+
+  ws.on("close", () => {
+    console.log("Client disconnected");
+  });
 });
 
 async function run() {
@@ -71,10 +100,15 @@ async function run() {
       try {
         const { id } = req.params;
         const updatedTask = req.body;
+    
+        // Remove _id from the update payload
+        delete updatedTask._id;
+    
         const result = await tasksCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: updatedTask }
         );
+    
         res.json({ message: "Task updated", result });
       } catch (error) {
         res.status(500).json({ error: error.message });
@@ -86,6 +120,8 @@ async function run() {
       try {
         const { id } = req.params;
         await tasksCollection.deleteOne({ _id: new ObjectId(id) });
+
+        broadcast({ type: "TASK_DELETED", taskId: id });
         res.json({ message: "Task deleted" });
       } catch (error) {
         res.status(500).json({ error: error.message });
@@ -95,7 +131,7 @@ async function run() {
     //Reorder tasks
     app.put("/tasks/reorder", async (req, res) => {
       try {
-        const { tasks } = req.body; // Array of tasks with updated order
+        const { tasks } = req.body;
         const bulkOps = tasks.map((task) => ({
           updateOne: {
             filter: { _id: new ObjectId(task._id) },
@@ -103,12 +139,13 @@ async function run() {
           },
         }));
         await tasksCollection.bulkWrite(bulkOps);
+
+        broadcast({ type: "TASKS_REORDERED", tasks });
         res.json({ message: "Tasks reordered successfully" });
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
     });
-
 
     //Add a new task
     app.post("/tasks", async (req, res) => {
@@ -116,7 +153,10 @@ async function run() {
         const { title, description, category, order } = req.body;
         const newTask = { title, description, category, order, timestamp: new Date() };
         const result = await tasksCollection.insertOne(newTask);
-        res.status(201).json({ _id: result.insertedId, ...newTask });
+        const task = { _id: result.insertedId, ...newTask };
+
+        broadcast({ type: "TASK_ADDED", task });
+        res.status(201).json(task);
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
